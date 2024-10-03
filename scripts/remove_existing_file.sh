@@ -1,4 +1,7 @@
 #!/bin/bash
-rm -f /var/www/html/civilbook/phpunit.xml
-mv /var/www/html/civilbook/phpunit.xml /var/www/html/civilbook/phpunit.xml.bak
+
+# Remove the existing phpunit.xml file if it exists
+if [ -f /var/www/html/civilbook/phpunit.xml ]; then
+    rm /var/www/html/civilbook/phpunit.xml
+fi
 
