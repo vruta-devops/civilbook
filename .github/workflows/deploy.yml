@@ -1,0 +1,60 @@
+name: Deploy to Prod EC2 Instance
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH key
+        uses: webfactory/ssh-agent@v0.4.0
+        with:
+          ssh-private-key: ${{ secrets.CB_PROD_EC2_INSTANCE_PRIVATE_KEY }}
+
+      - name: Add SSH key to agent
+        run: |
+          echo "${{ secrets.CB_PROD_EC2_INSTANCE_PRIVATE_KEY }}" | ssh-add -
+
+      - name: Connect to EC2 instance
+        uses: appleboy/ssh-action@master
+        with:
+          host: 3.225.177.117
+          username: ubuntu
+          key: ${{ secrets.CB_PROD_EC2_INSTANCE_PRIVATE_KEY }}
+          port: 22
+          script: |
+            sudo su
+            cd /var/www/html/civilbook
+
+            # Pull the staging branch of the repository
+            sudo git pull origin main
+
+            # Run composer install in the background
+            nohup composer install > /dev/null 2>&1 &
+
+            # Check migration status and run database migrations if pending
+            migration_status=$(php artisan migrate:status --no-ansi | tail -n +3 | awk '{print $4}')
+            echo "Migration status:"
+            echo "$migration_status"
+
+            if [[ "$migration_status" == *"Pending"* ]]; then
+              echo "Pending migrations detected. Running database migrations..."
+              php artisan migrate
+            else
+              echo "No pending migrations detected. Skipping database migrations."
+            fi
+
+            php artisan db:seed
+            echo "All seeders run successfully"
+
+            # Clear application cache
+            php artisan optimize:clear && sudo systemctl restart apache2
+
+            # The deployment to the EC2 instance is complete!
+            echo "Deployment to EC2 instance finished successfully."
