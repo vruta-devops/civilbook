@@ -14,7 +14,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Configure AWS credentials to modify security group
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -22,14 +21,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 2: Get GitHub Action runner's public IP
       - name: Get GitHub Action runner public IP
         run: |
           RUNNER_IP=$(curl -s http://checkip.amazonaws.com)
           echo "Runner public IP: $RUNNER_IP"
           echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
 
-      # Step 3: Add runner IP to EC2 Security Group for SSH access
       - name: Add runner IP to EC2 Security Group
         run: |
           SECURITY_GROUP_ID="sg-0817fc887c61e0f0f"
@@ -41,19 +38,16 @@ jobs:
         env:
           RUNNER_IP: ${{ env.RUNNER_IP }}
 
-      # Step 4: Configure SSH key for the deployment
       - name: Configure SSH key
         uses: webfactory/ssh-agent@v0.4.0
         with:
           ssh-private-key: ${{ secrets.CB_PROD_EC2_INSTANCE_PRIVATE_KEY }}
 
-      # Step 5: Add SSH private key to agent
       - name: Add SSH key to agent
         run: |
           echo "${{ secrets.CB_PROD_EC2_INSTANCE_PRIVATE_KEY }}" | ssh-add -
         shell: /usr/bin/bash -e {0}
 
-      # Step 6: Connect to EC2 instance and perform the deployment
       - name: Connect to EC2 instance and deploy
         uses: appleboy/ssh-action@master
         with:
@@ -65,37 +59,31 @@ jobs:
             sudo su
             cd /var/www/html/civilbook
 
-            # Pull the staging branch of the repository
             sudo git pull origin main
 
-            # Run composer install in the background
             nohup composer install > /dev/null 2>&1 &
 
-            # Check migration status and run database migrations if pending
             migration_status=$(php artisan migrate:status --no-ansi | tail -n +3 | awk '{print $4}')
-            echo ""Migration status:""
-            echo ""$migration_status""
+            echo "Migration status:"
+            echo "$migration_status"
 
-            if [[ ""$migration_status"" == *""Pending""* ]]; then
-              echo ""Pending migrations detected. Running database migrations...""
+            if [[ "$migration_status" == *"Pending"* ]]; then
+              echo "Pending migrations detected. Running database migrations..."
               php artisan migrate
             else
-              echo ""No pending migrations detected. Skipping database migrations.""
+              echo "No pending migrations detected. Skipping database migrations."
             fi
 
             php artisan db:seed
-            echo ""All seeders run successfully""
+            echo "All seeders run successfully"
 
-            # Clear application cache
             php artisan optimize:clear && sudo systemctl restart apache2
 
-            # The deployment to the EC2 instance is complete!
-            echo ""Deployment to EC2 instance finished successfully."""
+            echo "Deployment to EC2 instance finished successfully."
 
-      # Step 7: Remove the runner's IP from EC2 Security Group
       - name: Remove runner IP from EC2 Security Group
         run: |
-          SECURITY_GROUP_ID="sg-0817fc887c61e0f0f" # Replace with your EC2 security group ID
+          SECURITY_GROUP_ID="sg-0817fc887c61e0f0f"
           aws ec2 revoke-security-group-ingress \
             --group-id $SECURITY_GROUP_ID \
             --protocol tcp \
